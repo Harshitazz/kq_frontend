@@ -1,5 +1,5 @@
 # VectraMind Knowledge Graph Platform
-
+deployed link - https://kq-frontend-one.vercel.app/graph
 A full-stack knowledge graph search assistant for PDF and web URL content, combining:
 - LLM-based knowledge graph extraction (Neo4j)
 - Vector retrieval with Qdrant embeddings
