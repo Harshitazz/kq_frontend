@@ -1,18 +1,12 @@
 "use client";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import KnowledgeGraph from "../_components/KnowledgeGraph";
 import GraphSidebar from "../_components/GraphSidebar";
 import { ProcessingOverlay } from "../_components/ProcessingOverlay";
 import { useAuth } from "@clerk/nextjs";
+import type { TaskStatus } from "../_types/graph";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://news-ai-394571818909.us-central1.run.app";
-
-interface TaskStatus {
-  task_id: string;
-  status: string;
-  progress?: number;
-  message?: string;
-}
 
 export default function GraphPage() {
   const { isSignedIn } = useAuth();

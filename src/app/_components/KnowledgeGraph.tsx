@@ -15,71 +15,23 @@ import ReactFlow, {
 import dagre from "dagre";
 import "reactflow/dist/style.css";
 import { useAuth } from "@clerk/nextjs";
-
-interface GraphNode {
-  id: number;
-  name: string;
-  type: string | { type?: string; text?: string; [key: string]: any };
-  label: string;
-  properties?: Record<string, any>;
-}
-
-interface GraphLink {
-  source: number | GraphNode;
-  target: number | GraphNode;
-  type: string | { type?: string; text?: string; [key: string]: any };
-  label: string;
-  properties?: Record<string, any>;
-}
-
-interface GraphData {
-  nodes: GraphNode[];
-  links: GraphLink[];
-}
+import type { GraphData, GraphLink, GraphNode } from "../_types/graph";
+import {
+  getEdgeColor,
+  getExplanationText,
+  getLinkLabelText,
+  NODE_BORDER_COLORS,
+  NODE_COLORS,
+  normalizeNodeType,
+  safeText,
+} from "../_utils/graph";
+import { GraphCanvas } from "./knowledge-graph/GraphCanvas";
+import { GraphNodeDetailPanel } from "./knowledge-graph/GraphNodeDetailPanel";
 
 interface KnowledgeGraphProps {
   apiUrl: string;
   selectedTaskIds?: string[] | null;
 }
-
-// Highly differentiable color scheme - distinct colors for each type
-const NODE_COLORS: Record<string, string> = {
-  TOPIC: "#DBEAFE",        // Blue-200
-  CONCEPT: "#D1FAE5",      // Green-200
-  THEORY: "#FEF3C7",       // Yellow-200
-  METHOD: "#FCE7F3",       // Pink-200
-  PERSON: "#FED7AA",       // Orange-200
-  ORGANIZATION: "#E9D5FF", // Purple-200
-  LOCATION: "#BFDBFE",     // Blue-200
-  EVENT: "#FECACA",        // Red-200
-  PRODUCT: "#FEF08A",      // Yellow-200
-  BUDGET_ITEM: "#FCA5A5",  // Red-300
-  CATEGORY: "#C7D2FE",     // Indigo-200
-  TECHNOLOGY: "#A7F3D0",   // Emerald-200
-  TOOL: "#BAE6FD",         // Cyan-200
-  PROCESS: "#DDD6FE",      // Violet-200
-  METRIC: "#99F6E4",       // Teal-200
-  OTHER: "#E5E7EB",        // Gray-200
-};
-
-const NODE_BORDER_COLORS: Record<string, string> = {
-  TOPIC: "#3B82F6",        // Blue-500
-  CONCEPT: "#10B981",      // Emerald-600
-  THEORY: "#EAB308",       // Yellow-600
-  METHOD: "#EC4899",       // Pink-600
-  PERSON: "#F97316",       // Orange-600
-  ORGANIZATION: "#9333EA", // Purple-600
-  LOCATION: "#2563EB",     // Blue-600
-  EVENT: "#DC2626",        // Red-600
-  PRODUCT: "#84CC16",      // Lime-600
-  BUDGET_ITEM: "#EF4444",  // Red-500
-  CATEGORY: "#6366F1",     // Indigo-500
-  TECHNOLOGY: "#059669",   // Emerald-700
-  TOOL: "#0891B2",         // Cyan-600
-  PROCESS: "#7C3AED",      // Violet-600
-  METRIC: "#14B8A6",       // Teal-600
-  OTHER: "#6B7280",        // Gray-500
-};
 
 export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTaskIds }: KnowledgeGraphProps) {
   const { getToken } = useAuth();
@@ -178,66 +130,12 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
   const nodeTypes = useMemo(() => {
     const types = new Set<string>();
     graphData.nodes.forEach((node) => {
-      const t = typeof node.type === "string"
-        ? node.type
-        : (node.type && typeof node.type === "object")
-          ? (node.type.type || node.type.text || JSON.stringify(node.type))
-          : "OTHER";
+      const t = normalizeNodeType(node.type);
       types.add(t);
     });
     return Array.from(types).sort();
   }, [graphData.nodes]);
 
-  const getExplanationText = (value: unknown): string => {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (value && typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-
-    if (typeof obj.text === "string") {
-      return obj.text;
-    }
-
-    if (typeof obj.content === "string") {
-      return obj.content;
-    }
-
-    if (typeof obj.explanation === "string") {
-      return obj.explanation;
-    }
-
-    return JSON.stringify(value);
-  }
-
-  return String(value ?? "");
-};
-
-  const safeText = (type: unknown): string => {
-  if (typeof type === "string") {
-    return type;
-  }
-
-  if (type && typeof type === "object") {
-    const value = type as {
-      type?: unknown;
-      text?: unknown;
-    };
-
-    if (typeof value.type === "string") {
-      return value.type;
-    }
-
-    if (typeof value.text === "string") {
-      return value.text;
-    }
-
-    return "OTHER";
-  }
-
-  return "OTHER";
-};
 
   const { nodes: flowNodes, edges: flowEdges } = useMemo(() => {
     if (!graphData.nodes.length) {
@@ -246,8 +144,7 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
     
     const nodesToUse = filteredNodeTypes.size > 0
       ? graphData.nodes.filter(node => {
-          const t = typeof node.type === "string" ? node.type : (node.type && typeof node.type === "object" ? (node.type.type || node.type.text || JSON.stringify(node.type)) : String(node.type));
-          return !filteredNodeTypes.has(t);
+          return !filteredNodeTypes.has(normalizeNodeType(node.type));
         })
       : graphData.nodes;
     
@@ -268,11 +165,7 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
       const flowId = `node-${node.id}`;
       nodeIdMap.set(node.id, flowId);
       const nodeName = safeText(node.name) || "Unknown";
-      const nodeType = typeof node.type === "string"
-        ? node.type
-        : (node.type && typeof node.type === "object")
-          ? (node.type.type || node.type.text || JSON.stringify(node.type))
-          : "OTHER";
+      const nodeType = normalizeNodeType(node.type);
       const nodeColor = NODE_COLORS[nodeType] || NODE_COLORS.OTHER;
       const borderColor = NODE_BORDER_COLORS[nodeType] || NODE_BORDER_COLORS.OTHER;
       const width = Math.max(160, Math.min(250, nodeName.length * 9 + 50));
@@ -321,39 +214,13 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
           return null;
         }
 
-        // Generate a unique color for each edge based on its ID for better differentiation
-        // Modern color palette - teal/emerald/slate based for better differentiation
-        const edgeColors = [
-          "#14B8A6", // teal
-          "#10B981", // emerald
-          "#059669", // emerald-600
-          "#0D9488", // teal-600
-          "#0891B2", // cyan-600
-          "#0284C7", // sky-600
-          "#2563EB", // blue-600
-          "#6366F1", // indigo-500
-          "#7C3AED", // violet-600
-          "#A855F7", // purple-500
-          "#C026D3", // fuchsia-600
-          "#DB2777", // pink-600
-          "#E11D48", // rose-600
-          "#DC2626", // red-600
-          "#EA580C", // orange-600
-          "#D97706", // amber-600
-          "#CA8A04", // yellow-600
-        ];
-        const edgeColorIndex = Math.abs(
-          (sourceFlowId + targetFlowId + link.type).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
-        ) % edgeColors.length;
-        const edgeColor = edgeColors[edgeColorIndex];
+        const edgeColor = getEdgeColor(sourceFlowId, targetFlowId, link.type);
 
         return {
           id: `edge-${sourceFlowId}-${targetFlowId}-${link.type}`,
           source: sourceFlowId,
           target: targetFlowId,
-          label: (typeof link.type === 'string' ? link.type : (link.type && typeof link.type === 'object' ? (link.type.type || link.type.text || JSON.stringify(link.type)) : String(link.type))).length > 20
-            ? (typeof link.type === 'string' ? link.type : (link.type && typeof link.type === 'object' ? (link.type.type || link.type.text || JSON.stringify(link.type)) : String(link.type))).substring(0,17) + '...'
-            : (typeof link.type === 'string' ? link.type : (link.type && typeof link.type === 'object' ? (link.type.type || link.type.text || JSON.stringify(link.type)) : String(link.type))),
+          label: getLinkLabelText(link.type),
           labelStyle: { 
             fill: "#111827", 
             fontSize: "12px", 
@@ -363,7 +230,7 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
             borderRadius: "8px", 
             fontFamily: "'Inter', sans-serif",
             pointerEvents: "none",
-              border: `2px solid ${edgeColor}`,
+            border: `2px solid ${edgeColor}`,
             boxShadow: "0 4px 8px rgba(0,0,0,0.15)",
           },
           style: { 
@@ -542,165 +409,33 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
 
   return (
     <div className="w-full h-full relative">
-      <ReactFlow
+      <GraphCanvas
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
-        connectionMode={ConnectionMode.Loose}
-        fitView
-        fitViewOptions={{ padding: 0.1, maxZoom: 2, minZoom: 0.2, includeHiddenNodes: false }}
-        attributionPosition="bottom-left"
-        nodesDraggable={true}
-        nodesConnectable={false}
-        elementsSelectable={true}
-        minZoom={0.1}
-        maxZoom={2}
-        elevateEdgesOnSelect={false}
-        elevateNodesOnSelect={true}
-        defaultEdgeOptions={{
-          style: { strokeWidth: 4, opacity: 1 },
-          type: "step",
-        }}
-        nodeOrigin={[0.5, 0.5]}
-      >
-        <Controls />
-        <MiniMap
-          nodeColor={(node) => {
-            const nodeData = node.data?.nodeData;
-            return nodeData ? NODE_COLORS[safeText(nodeData.type)] || NODE_COLORS.OTHER : "#C7CEEA";
-          }}
-          maskColor="rgba(0, 0, 0, 0.1)"
-        />
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e5e7eb" />
-        
-        <Panel position="top-right" className="bg-gradient-to-br from-white via-teal-50 to-emerald-50 rounded-xl shadow-2xl border border-teal-200 p-5 max-w-xs z-10 max-h-[90vh] overflow-y-auto backdrop-blur-sm animate-in fade-in slide-in-from-top-5 duration-300">
-          <div className="text-sm font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-teal-600 to-emerald-600">Selected Graphs</div>
-          {selectedTaskIds.length > 0 ? (
-            <div className="mb-3 space-y-1">
-              {selectedTaskIds.map((taskId, idx) => (
-                <div key={taskId} className="px-2 py-1 text-xs bg-gradient-to-r from-teal-100 to-emerald-100 border border-teal-300 rounded-lg shadow-sm">
-                  {idx + 1}. {taskId.substring(0, 12)}...
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="mb-3 px-2 py-1 text-xs text-gray-700 bg-gray-50 rounded-lg">
-              All Graphs
-            </div>
-          )}
-          
-          {/* Filter Toggle */}
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="mb-2 px-3 py-1 text-xs bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white rounded-lg w-full shadow-md transition-all duration-200 font-medium"
-          >
-            {showFilters ? "Hide" : "Show"} Filters
-          </button>
-          
-          {/* Node Type Filters */}
-          {showFilters && nodeTypes.length > 0 && (
-            <div className="mb-3 p-3 bg-gradient-to-br from-teal-50 to-emerald-50 rounded-lg border border-teal-200 shadow-sm">
-              <div className="text-xs font-semibold mb-2 text-teal-700">Filter Node Types:</div>
-              <div className="space-y-1 max-h-32 overflow-y-auto">
-                {nodeTypes.map((type) => (
-                  <label key={type} className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={!filteredNodeTypes.has(type)}
-                      onChange={(e) => {
-                        const newFilters = new Set(filteredNodeTypes);
-                        if (e.target.checked) {
-                          newFilters.delete(type);
-                        } else {
-                          newFilters.add(type);
-                        }
-                        setFilteredNodeTypes(newFilters);
-                      }}
-                      className="w-3 h-3"
-                    />
-                    <span>{type}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          <div className="text-sm font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-blue-600">Legend</div>
-          <div className="space-y-1 text-xs max-h-48 overflow-y-auto">
-            {nodeTypes.map((type) => {
-              const color = NODE_COLORS[type] || NODE_COLORS.OTHER;
-              const borderColor = NODE_BORDER_COLORS[type] || NODE_BORDER_COLORS.OTHER;
-              return (
-                <div key={type} className="flex items-center gap-2 p-1 hover:bg-teal-50 rounded transition-colors">
-                  <div
-                    className="w-5 h-5 rounded-lg shadow-sm border border-gray-300"
-                    style={{ background: color }}
-                  />
-                  <span className="font-medium text-gray-700">{type}</span>
-                </div>
-              );
-            })}
-          </div>
-          <div className="mt-3 text-xs text-gray-800">
-            <div className="font-semibold">Nodes: {graphData.nodes.length} | Links: {graphData.links.length}</div>
-            {filteredNodeTypes.size > 0 && (
-              <div className="text-orange-700 font-medium mt-1">
-                {filteredNodeTypes.size} type(s) hidden
-              </div>
-            )}
-          </div>
-          <button
-            onClick={fetchGraphData}
-            className="mt-2 px-3 py-2 text-xs bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white rounded-lg w-full shadow-md transition-all duration-200 font-semibold"
-          >
-            Refresh
-          </button>
-        </Panel>
-      </ReactFlow>
+        graphData={graphData}
+        nodeTypes={nodeTypes}
+        selectedTaskIds={selectedTaskIds}
+        filteredNodeTypes={filteredNodeTypes}
+        setFilteredNodeTypes={setFilteredNodeTypes}
+        fetchGraphData={fetchGraphData}
+        showFilters={showFilters}
+        onToggleFilters={() => setShowFilters((value) => !value)}
+      />
 
       {selectedNode && (
-        <div className="absolute top-4 left-4 z-10 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200 p-6 max-w-sm max-h-[80vh] overflow-y-auto font-sans">
-          <div className="flex justify-between items-start mb-4">
-            <h3 className="font-semibold text-xl text-gray-900">{safeText(selectedNode.name)}</h3>
-            <button
-              onClick={() => {
-                setSelectedNode(null);
-                setNodeExplanation(null);
-              }}
-              className="text-gray-400 hover:text-gray-600 text-2xl leading-none transition-colors"
-            >
-              ×
-            </button>
-          </div>
-          
-          <div className="text-sm space-y-3 text-gray-900">
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-gray-700">Type:</span> 
-              <span className="text-gray-900">{safeText(selectedNode.type)}</span>
-            </div>
-            {selectedNode.properties?.source && (
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-gray-700">Source:</span>
-                <span className="text-xs text-gray-900">{safeText(selectedNode.properties.source)}</span>
-              </div>
-            )}
-            
-            {/* Explanation Section */}
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <div className="font-semibold mb-3 text-gray-900">Explanation:</div>
-              {loadingExplanation ? (
-                <div className="text-sm text-gray-900 font-medium">Loading explanation...</div>
-              ) : nodeExplanation ? (
-                <p className="text-sm text-gray-900 leading-relaxed">{nodeExplanation}</p>
-              ) : (
-                <p className="text-sm text-gray-600">Click to load explanation</p>
-              )}
-            </div>
-          </div>
-        </div>
+        <GraphNodeDetailPanel
+          selectedNode={selectedNode}
+          loadingExplanation={loadingExplanation}
+          nodeExplanation={nodeExplanation}
+          onClose={() => {
+            setSelectedNode(null);
+            setNodeExplanation(null);
+          }}
+        />
       )}
     </div>
   );

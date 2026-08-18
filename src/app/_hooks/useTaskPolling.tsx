@@ -1,11 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-
-interface TaskStatus {
-  task_id: string;
-  status: string;
-  progress?: number;
-  message?: string;
-}
+import type { TaskStatus } from '../_types/graph';
 
 interface UseTaskPollingOptions {
   apiUrl: string;
