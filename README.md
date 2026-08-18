@@ -1,3 +1,8 @@
+
+
+https://github.com/user-attachments/assets/68e6c9a4-33ec-4045-abd4-ef032a2e222c
+
+
 # VectraMind Knowledge Graph Platform
 deployed link - https://kq-frontend-one.vercel.app/graph
 A full-stack knowledge graph search assistant for PDF and web URL content, combining:
