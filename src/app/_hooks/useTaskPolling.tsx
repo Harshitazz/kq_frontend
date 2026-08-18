@@ -61,8 +61,12 @@ export function useTaskPolling({
           return newMap;
         });
 
-        // Handle status changes
+        // Handle meaningful status changes only
         if (lastStatus && lastStatus !== currentStatus) {
+          console.info(
+            `[Task ${taskId}] status changed: ${lastStatus} -> ${currentStatus}`
+          );
+
           if (currentStatus === 'Completed') {
             onComplete?.(taskId);
           } else if (currentStatus.startsWith('Failed')) {
@@ -98,11 +102,8 @@ export function useTaskPolling({
 
         return true;
       } catch (error) {
-        console.error(
-          `Error checking task status for ${taskId}:`,
-          error
-        );
-
+        // Ignore transient poll failures to prevent log spam;
+        // only meaningful status transitions are surfaced.
         return false;
       }
     },

@@ -5,7 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 interface GraphNode {
   id: number;
   name: string;
-  type: string;
+  type: string | { type?: string; text?: string; [key: string]: any };
   label: string;
   properties?: Record<string, any>;
 }
@@ -13,7 +13,7 @@ interface GraphNode {
 interface GraphLink {
   source: number | GraphNode;
   target: number | GraphNode;
-  type: string;
+  type: string | { type?: string; text?: string; [key: string]: any };
   label: string;
   properties?: Record<string, any>;
 }
@@ -73,6 +73,12 @@ export default function KnowledgeGraphWebGL({ apiUrl, selectedTaskIds: propSelec
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  const safeText = (val: any) => {
+    if (typeof val === 'string') return val;
+    if (val && typeof val === 'object') return (val.text || val.type || JSON.stringify(val));
+    return String(val ?? '');
+  };
 
   // Listen for highlight events
   useEffect(() => {
@@ -147,7 +153,6 @@ export default function KnowledgeGraphWebGL({ apiUrl, selectedTaskIds: propSelec
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to load graph";
       setError(errorMessage);
-      console.error("Error fetching graph data:", err);
     } finally {
       setLoading(false);
     }
@@ -199,17 +204,18 @@ export default function KnowledgeGraphWebGL({ apiUrl, selectedTaskIds: propSelec
 
       // Add nodes
       graphData.nodes.forEach((node) => {
-        const nodeType = node.type || "OTHER";
+        const nodeType = typeof node.type === 'string' ? node.type : (node.type && typeof node.type === 'object' ? (node.type.type || node.type.text || JSON.stringify(node.type)) : 'OTHER');
         const baseColor = NODE_COLORS[nodeType] || NODE_COLORS.OTHER;
+        const nodeNameStr = safeText(node.name);
         // Highlight nodes if they're in the highlighted list
-        const isHighlighted = highlightedNodeNames.includes(node.name);
+        const isHighlighted = highlightedNodeNames.includes(nodeNameStr);
         const color = isHighlighted ? "#EF4444" : baseColor; // Red for highlighted nodes
         const size = isHighlighted 
-          ? Math.max(12, Math.min(25, node.name.length * 1.0)) // Larger size for highlighted
-          : Math.max(8, Math.min(20, node.name.length * 0.8));
+          ? Math.max(12, Math.min(25, nodeNameStr.length * 1.0)) // Larger size for highlighted
+          : Math.max(8, Math.min(20, nodeNameStr.length * 0.8));
         
         graph.addNode(node.id.toString(), {
-          label: node.name,
+          label: nodeNameStr,
           size: size,
           color: color,
           x: Math.random() * 1000,
@@ -224,17 +230,18 @@ export default function KnowledgeGraphWebGL({ apiUrl, selectedTaskIds: propSelec
       graphData.links.forEach((link) => {
         const sourceId = typeof link.source === "object" ? link.source.id : link.source;
         const targetId = typeof link.target === "object" ? link.target.id : link.target;
+        const linkTypeStr = typeof link.type === 'string' ? link.type : (link.type && typeof link.type === 'object' ? (link.type.type || link.type.text || JSON.stringify(link.type)) : String(link.type));
         
         if (graph.hasNode(sourceId.toString()) && graph.hasNode(targetId.toString())) {
           const edgeColorIndex = Math.abs(
-            (sourceId + targetId + link.type).toString().split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+            (String(sourceId) + String(targetId) + linkTypeStr).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
           ) % EDGE_COLORS.length;
           const edgeColor = EDGE_COLORS[edgeColorIndex];
           
           try {
             // Keep full relationship name for edge labels
             graph.addEdge(sourceId.toString(), targetId.toString(), {
-              label: link.type, // Full relationship type for label rendering
+              label: linkTypeStr, // Full relationship type for label rendering
               color: edgeColor,
               size: 5,  // Increased from 4 to make edges more visible and readable
               weight: 1,
@@ -302,7 +309,7 @@ export default function KnowledgeGraphWebGL({ apiUrl, selectedTaskIds: propSelec
           const token = await getToken();
           const taskIds = propSelectedTaskIds || selectedTaskIds;
           const taskIdParam = taskIds.length === 1 ? `&task_id=${taskIds[0]}` : '';
-          const response = await fetch(`${apiUrl}/knowledge_graph/node/explain?node_name=${encodeURIComponent(nodeData.nodeData.name)}${taskIdParam}`, {
+          const response = await fetch(`${apiUrl}/knowledge_graph/node/explain?node_name=${encodeURIComponent(safeText(nodeData.nodeData.name))}${taskIdParam}`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (response.ok) {
@@ -380,16 +387,16 @@ export default function KnowledgeGraphWebGL({ apiUrl, selectedTaskIds: propSelec
         if (edgeData.label) {
           setSelectedNode({
             id: 0,
-            name: `${sourceData.label} → ${targetData.label}`,
+            name: `${safeText(sourceData.label)} → ${safeText(targetData.label)}`,
             type: 'RELATIONSHIP',
             label: edgeData.label,
             properties: {
               relationship: edgeData.label,
-              source: sourceData.label,
-              target: targetData.label,
+              source: safeText(sourceData.label),
+              target: safeText(targetData.label),
             }
           });
-          setNodeExplanation(`Relationship Type: ${edgeData.label}\n\nFrom: ${sourceData.label}\nTo: ${targetData.label}\n\nThis relationship connects the two entities in the knowledge graph.`);
+          setNodeExplanation(`Relationship Type: ${edgeData.label}\n\nFrom: ${safeText(sourceData.label)}\nTo: ${safeText(targetData.label)}\n\nThis relationship connects the two entities in the knowledge graph.`);
         }
       });
 
@@ -505,8 +512,7 @@ export default function KnowledgeGraphWebGL({ apiUrl, selectedTaskIds: propSelec
       sigma.on('afterRender', renderEdgeLabels);
       
       sigmaRef.current = sigma;
-    }).catch((err) => {
-      console.error("Error loading graph libraries:", err);
+    }).catch(() => {
       setError("Failed to load graph visualization libraries");
     });
 
@@ -603,7 +609,7 @@ export default function KnowledgeGraphWebGL({ apiUrl, selectedTaskIds: propSelec
       {selectedNode && (
         <div className="absolute top-4 left-4 z-10 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200 p-6 max-w-sm max-h-[80vh] overflow-y-auto font-sans">
           <div className="flex justify-between items-start mb-4">
-            <h3 className="font-semibold text-xl text-gray-900">{selectedNode.name}</h3>
+            <h3 className="font-semibold text-xl text-gray-900">{safeText(selectedNode.name)}</h3>
             <button
               onClick={() => {
                 setSelectedNode(null);
@@ -618,12 +624,12 @@ export default function KnowledgeGraphWebGL({ apiUrl, selectedTaskIds: propSelec
           <div className="text-sm space-y-3 text-gray-900">
             <div className="flex items-center gap-2">
               <span className="font-medium text-gray-700">Type:</span> 
-              <span className="text-gray-900">{selectedNode.type}</span>
+              <span className="text-gray-900">{safeText(selectedNode.type)}</span>
             </div>
             {selectedNode.properties?.source && (
               <div className="flex items-center gap-2">
                 <span className="font-medium text-gray-700">Source:</span>
-                <span className="text-xs text-gray-900">{selectedNode.properties.source}</span>
+                <span className="text-xs text-gray-900">{safeText(selectedNode.properties.source)}</span>
               </div>
             )}
             

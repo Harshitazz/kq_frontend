@@ -122,7 +122,6 @@ export function useVoice({ onTranscript, language = 'en' }: UseVoiceOptions = {}
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.error('Speech recognition error:', event.error);
       setIsRecording(false);
       if (event.error === 'no-speech') {
         alert('No speech detected. Please try again.');
@@ -166,8 +165,7 @@ export function useVoice({ onTranscript, language = 'en' }: UseVoiceOptions = {}
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
 
-    utterance.onerror = (event) => {
-      console.error('Text-to-speech error:', event);
+    utterance.onerror = () => {
       alert('Error playing speech. Please try again.');
     };
 

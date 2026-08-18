@@ -51,8 +51,8 @@ export default function GraphSidebar({ isOpen, onToggle, apiUrl, selectedTaskIds
         const kgData = await kgRes.json();
         setKgHistory(kgData.history || []);
       }
-    } catch (error) {
-      console.error("Error fetching history:", error);
+    } catch {
+      // Silent fail: history refresh is non-critical and should not spam the console.
     }
   }, [apiUrl, getToken]);
 
@@ -248,14 +248,93 @@ export default function GraphSidebar({ isOpen, onToggle, apiUrl, selectedTaskIds
     }
   };
 
+  const safeText = (val: any) => {
+    if (val === null || val === undefined) return "";
+    if (typeof val === "string") return val;
+    if (typeof val === "number" || typeof val === "boolean") return String(val);
+    if (typeof val === "object") {
+      if (typeof val.text === "string") return val.text;
+      if (typeof val.type === "string") return val.type;
+      try {
+        return JSON.stringify(val);
+      } catch {
+        return String(val);
+      }
+    }
+    return String(val);
+  };
+
+  const escapeHtml = (unsafe: string) => {
+    return unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  };
+
+  const formatAnswerHtml = (text: string) => {
+    if (!text) return "";
+    // escape then simple markdown-like formatting for bold and line breaks
+    let out = escapeHtml(text);
+    out = out.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+    // simple numbered list handling: convert lines starting with '1.' or '- ' to <li>
+    const lines = out.split(/\r?\n/);
+    // detect if it's a list
+    const isList = lines.every(l => l.trim().match(/^(-|\d+\.)\s+/) || l.trim() === "");
+    if (isList) {
+      const items = lines.filter(l => l.trim()).map(l => l.replace(/^(-|\d+\.)\s+/, ""));
+      return `<ul>${items.map(i => `<li>${i}</li>`).join("")}</ul>`;
+    }
+    return out.replace(/\n/g, "<br/>");
+  };
+
+  // Resizable sidebar state
+  const [sidebarWidth, setSidebarWidth] = useState<number>(320); // px (~w-80)
+  const isResizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const dx = e.clientX - startXRef.current;
+      const newWidth = Math.max(240, Math.min(720, startWidthRef.current + dx));
+      setSidebarWidth(newWidth);
+    };
+    const onMouseUp = () => {
+      isResizingRef.current = false;
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  const startResize = (e: React.MouseEvent) => {
+    isResizingRef.current = true;
+    startXRef.current = e.clientX;
+    startWidthRef.current = sidebarWidth;
+  };
+
   return (
     <>
       {/* Sidebar */}
       <div
+        style={{ width: sidebarWidth }}
         className={`fixed left-0 top-0 h-full bg-white/95 backdrop-blur-sm shadow-xl border-r border-gray-200 z-50 transition-transform duration-300 text-gray-900 font-sans ${
           isOpen ? "translate-x-0" : "-translate-x-full"
-        } w-80 overflow-y-auto`}
+        } overflow-y-auto`}
       >
+        {/* Resize handle */}
+        <div
+          onMouseDown={startResize}
+          className="absolute right-0 top-0 h-full w-1 cursor-col-resize z-50"
+          style={{ touchAction: 'none' }}
+          aria-hidden
+        />
         <div className="p-4 border-b border-gray-200 bg-white flex items-center justify-between">
           <h2 className="text-xl font-semibold text-gray-900">Knowledge Graph</h2>
           <button
@@ -383,7 +462,8 @@ export default function GraphSidebar({ isOpen, onToggle, apiUrl, selectedTaskIds
                   disabled={isLoading || urls.filter(u => u.trim()).length === 0}
                   className="mt-2 w-full px-4 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 disabled:opacity-50 shadow-sm transition-all duration-200 font-medium"
                 >
-                  {isLoading ? "Processing..." : "Process URLs"}
+                  {/* {isLoading ? "Processing..." : "Process URLs"} */}
+                  Process URLs
                 </button>
               </div>
             </div>
@@ -482,7 +562,10 @@ export default function GraphSidebar({ isOpen, onToggle, apiUrl, selectedTaskIds
                         </button>
                       )}
                     </div>
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{answer}</p>
+                    <div
+                      className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: formatAnswerHtml(answer) }}
+                    />
                   </div>
 
                   {/* Source Chunks */}

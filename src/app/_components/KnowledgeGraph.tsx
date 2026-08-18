@@ -19,7 +19,7 @@ import { useAuth } from "@clerk/nextjs";
 interface GraphNode {
   id: number;
   name: string;
-  type: string;
+  type: string | { type?: string; text?: string; [key: string]: any };
   label: string;
   properties?: Record<string, any>;
 }
@@ -27,7 +27,7 @@ interface GraphNode {
 interface GraphLink {
   source: number | GraphNode;
   target: number | GraphNode;
-  type: string;
+  type: string | { type?: string; text?: string; [key: string]: any };
   label: string;
   properties?: Record<string, any>;
 }
@@ -159,7 +159,6 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to load graph";
       setError(errorMessage);
-      console.error("Error fetching graph data:", err);
     } finally {
       setLoading(false);
     }
@@ -179,10 +178,66 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
   const nodeTypes = useMemo(() => {
     const types = new Set<string>();
     graphData.nodes.forEach((node) => {
-      types.add(node.type);
+      const t = typeof node.type === "string"
+        ? node.type
+        : (node.type && typeof node.type === "object")
+          ? (node.type.type || node.type.text || JSON.stringify(node.type))
+          : "OTHER";
+      types.add(t);
     });
     return Array.from(types).sort();
   }, [graphData.nodes]);
+
+  const getExplanationText = (value: unknown): string => {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+
+    if (typeof obj.text === "string") {
+      return obj.text;
+    }
+
+    if (typeof obj.content === "string") {
+      return obj.content;
+    }
+
+    if (typeof obj.explanation === "string") {
+      return obj.explanation;
+    }
+
+    return JSON.stringify(value);
+  }
+
+  return String(value ?? "");
+};
+
+  const safeText = (type: unknown): string => {
+  if (typeof type === "string") {
+    return type;
+  }
+
+  if (type && typeof type === "object") {
+    const value = type as {
+      type?: unknown;
+      text?: unknown;
+    };
+
+    if (typeof value.type === "string") {
+      return value.type;
+    }
+
+    if (typeof value.text === "string") {
+      return value.text;
+    }
+
+    return "OTHER";
+  }
+
+  return "OTHER";
+};
 
   const { nodes: flowNodes, edges: flowEdges } = useMemo(() => {
     if (!graphData.nodes.length) {
@@ -190,7 +245,10 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
     }
     
     const nodesToUse = filteredNodeTypes.size > 0
-      ? graphData.nodes.filter(node => !filteredNodeTypes.has(node.type))
+      ? graphData.nodes.filter(node => {
+          const t = typeof node.type === "string" ? node.type : (node.type && typeof node.type === "object" ? (node.type.type || node.type.text || JSON.stringify(node.type)) : String(node.type));
+          return !filteredNodeTypes.has(t);
+        })
       : graphData.nodes;
     
     if (!nodesToUse.length) {
@@ -209,9 +267,12 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
     const initialNodes: Node[] = nodesToUse.map((node) => {
       const flowId = `node-${node.id}`;
       nodeIdMap.set(node.id, flowId);
-      
-      const nodeName = node.name || "Unknown";
-      const nodeType = node.type || "OTHER";
+      const nodeName = safeText(node.name) || "Unknown";
+      const nodeType = typeof node.type === "string"
+        ? node.type
+        : (node.type && typeof node.type === "object")
+          ? (node.type.type || node.type.text || JSON.stringify(node.type))
+          : "OTHER";
       const nodeColor = NODE_COLORS[nodeType] || NODE_COLORS.OTHER;
       const borderColor = NODE_BORDER_COLORS[nodeType] || NODE_BORDER_COLORS.OTHER;
       const width = Math.max(160, Math.min(250, nodeName.length * 9 + 50));
@@ -225,7 +286,7 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
           label: (
             <div className="text-center font-sans">
               <div className="font-medium text-sm leading-tight text-gray-900">{nodeName}</div>
-              <div className="text-xs text-gray-600 mt-1 font-normal">{nodeType}</div>
+              <div className="text-xs text-gray-600 mt-1 font-normal">{String(nodeType)}</div>
             </div>
           ),
           nodeData: node,
@@ -290,7 +351,9 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
           id: `edge-${sourceFlowId}-${targetFlowId}-${link.type}`,
           source: sourceFlowId,
           target: targetFlowId,
-          label: link.type.length > 20 ? link.type.substring(0, 17) + "..." : link.type,
+          label: (typeof link.type === 'string' ? link.type : (link.type && typeof link.type === 'object' ? (link.type.type || link.type.text || JSON.stringify(link.type)) : String(link.type))).length > 20
+            ? (typeof link.type === 'string' ? link.type : (link.type && typeof link.type === 'object' ? (link.type.type || link.type.text || JSON.stringify(link.type)) : String(link.type))).substring(0,17) + '...'
+            : (typeof link.type === 'string' ? link.type : (link.type && typeof link.type === 'object' ? (link.type.type || link.type.text || JSON.stringify(link.type)) : String(link.type))),
           labelStyle: { 
             fill: "#111827", 
             fontSize: "12px", 
@@ -300,7 +363,7 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
             borderRadius: "8px", 
             fontFamily: "'Inter', sans-serif",
             pointerEvents: "none",
-            border: `2px solid ${edgeColor}`,
+              border: `2px solid ${edgeColor}`,
             boxShadow: "0 4px 8px rgba(0,0,0,0.15)",
           },
           style: { 
@@ -336,7 +399,7 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
 
     initialNodes.forEach((node) => {
       const nodeData = node.data?.nodeData;
-      const nodeName = nodeData?.name || "Node";
+      const nodeName = safeText(nodeData?.name) || "Node";
       const nodeWidth = Math.max(160, Math.min(250, nodeName.length * 9 + 50));
       // Reduced padding for more compact layout
       dagreGraph.setNode(node.id, { 
@@ -354,7 +417,7 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
     const layoutedNodes = initialNodes.map((node) => {
       const nodeWithPosition = dagreGraph.node(node.id);
       const nodeData = node.data?.nodeData;
-      const nodeName = nodeData?.name || "Unknown";
+      const nodeName = safeText(nodeData?.name) || "Unknown";
       const nodeWidth = Math.max(160, Math.min(250, nodeName.length * 9 + 50));
       // Account for the padding we added in dagre layout
       return {
@@ -390,7 +453,7 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
       const token = await getToken();
       const taskIds = propSelectedTaskIds || selectedTaskIds;
       const taskIdParam = taskIds.length === 1 ? `&task_id=${taskIds[0]}` : '';
-      const url = `${apiUrl}/knowledge_graph/node/explain?node_name=${encodeURIComponent(nodeData.name)}${taskIdParam}`;
+      const url = `${apiUrl}/knowledge_graph/node/explain?node_name=${encodeURIComponent(safeText(nodeData.name))}${taskIdParam}`;
       
       const response = await fetch(url, {
         headers: {
@@ -400,10 +463,9 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
       
       if (response.ok) {
         const data = await response.json();
-        setNodeExplanation(data.explanation);
+        setNodeExplanation(getExplanationText(data.explanation));
       }
-    } catch (error) {
-      console.error("Error fetching node explanation:", error);
+    } catch {
       setNodeExplanation("Unable to load explanation");
     } finally {
       setLoadingExplanation(false);
@@ -508,7 +570,7 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
         <MiniMap
           nodeColor={(node) => {
             const nodeData = node.data?.nodeData;
-            return nodeData ? NODE_COLORS[nodeData.type] || NODE_COLORS.OTHER : "#C7CEEA";
+            return nodeData ? NODE_COLORS[safeText(nodeData.type)] || NODE_COLORS.OTHER : "#C7CEEA";
           }}
           maskColor="rgba(0, 0, 0, 0.1)"
         />
@@ -602,7 +664,7 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
       {selectedNode && (
         <div className="absolute top-4 left-4 z-10 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200 p-6 max-w-sm max-h-[80vh] overflow-y-auto font-sans">
           <div className="flex justify-between items-start mb-4">
-            <h3 className="font-semibold text-xl text-gray-900">{selectedNode.name}</h3>
+            <h3 className="font-semibold text-xl text-gray-900">{safeText(selectedNode.name)}</h3>
             <button
               onClick={() => {
                 setSelectedNode(null);
@@ -617,12 +679,12 @@ export default function KnowledgeGraph({ apiUrl, selectedTaskIds: propSelectedTa
           <div className="text-sm space-y-3 text-gray-900">
             <div className="flex items-center gap-2">
               <span className="font-medium text-gray-700">Type:</span> 
-              <span className="text-gray-900">{selectedNode.type}</span>
+              <span className="text-gray-900">{safeText(selectedNode.type)}</span>
             </div>
             {selectedNode.properties?.source && (
               <div className="flex items-center gap-2">
                 <span className="font-medium text-gray-700">Source:</span>
-                <span className="text-xs text-gray-900">{selectedNode.properties.source}</span>
+                <span className="text-xs text-gray-900">{safeText(selectedNode.properties.source)}</span>
               </div>
             )}
             
